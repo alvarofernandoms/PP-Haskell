@@ -1,4 +1,26 @@
 PP-Haskell
 ==========
 
-Trabalho de PP - Paradigma Lógico (Haskell)
+Trabalho da disciplina Paradigmas de Programação - Paradigma Lógico (Haskell)
+
+
+Desenvolvimento
+---------------
+
+The Glorious Glasgow Haskell Compilation System, version 7.6.3
+
+
+Autores
+------
+
+Álvaro Fernando
+
+Cristiano Costa
+
+Luiz Matos
+
+
+Licença
+-------
+
+(?)

@@ -6,137 +6,155 @@ import Control.Monad.Random
 import Control.Monad.Writer
 import Data.Maybe
 import Data.List
+import System.IO
 
 import qualified Data.Text as T
 
 import System.Console.Haskeline
 
-type Cell  = Maybe Int
-type Row   = [Cell]
-type Board = [Row]
-type Score = Int
-data Direction = East | West | North | South deriving (Show, Eq)
+type Celula  = Maybe Int -- criacao de tipo Celula
+type Linha   = [Celula] -- criacao de tipo Linha com Celula como parametro
+type Matriz = [Linha] -- criacao de tipo Matriz com Linha como parametro
+type Pontuacao = Int -- criacao de tipo Pontuacao do tipo Inteiro
+data Direcao = Esquerda | Direita | Cima | Baixo deriving (Show, Eq) --definicao das direcoes dos movimentos
 
-data MoveOutcome = Lose | Win | Active | Invalid
-data RoundResult = RoundResult Score MoveOutcome Board 
+data Resultado = Derrota | Vitoria | Ativo | Invalido -- definicao dos estados de jogo
+data ResultadoRodada = ResultadoRodada Pontuacao Resultado Matriz -- definicao do resultado a cada jogada
 
-showBoard :: Board -> String
-showBoard = T.unpack . T.unlines . fmap formatRow
-    where formatRow = T.intercalate "|" . fmap (T.center 4 ' ' . formatCell)
-          formatCell (Just x) = T.pack $ show x
-          formatCell _ = mempty
+-- Funcao de formatacao da Matriz onde sera realizado o jogo
+criarMatriz :: Matriz -> String
+criarMatriz = T.unpack . T.unlines . fmap formatLinha
+    where formatLinha = T.intercalate "|" . fmap (T.center 4 ' ' . formatCelula)
+          formatCelula (Just x) = T.pack $ show x
+          formatCelula _ = mempty
 
-shiftRow :: Row -> Writer (Sum Score) Row
-shiftRow row = liftM (++ nothings) $ sumPairs justs
-    where (justs, nothings) = partition isJust row
-          sumPairs (Just x:Just y:zs) | x == y = do
+-- Funcao que realiza o calculo da soma dos numeros, caso realize a jogada certa
+mudarLinha :: Linha -> Writer (Sum Pontuacao) Linha
+mudarLinha linha = liftM (++ nothings) $ somaPares justs
+    where (justs, nothings) = partition isJust linha
+          somaPares (Just x:Just y:zs) | x == y = do
             let total = x + y
             tell $ Sum total
-            rest <- sumPairs zs
+            rest <- somaPares zs
             return $ Just total : rest ++ [Nothing]
-          sumPairs (x:xs) = liftM (x :) $ sumPairs xs
-          sumPairs [] = return []
+          somaPares (x:xs) = liftM (x :) $ somaPares xs
+          somaPares [] = return []
 
-shiftBoard :: Direction -> Board -> (Board, Sum Score)
-shiftBoard direction = runWriter . case direction of
-    West  -> goWest
-    East  -> goEast
-    North -> liftM transpose . goWest . transpose
-    South -> liftM transpose . goEast . transpose
-    where goWest = mapM shiftRow
-          goEast = mapM $ liftM reverse . shiftRow . reverse
+-- Funcao que realiza a movimentacao dos numeros na matriz
+mudarMatriz :: Direcao -> Matriz -> (Matriz, Sum Pontuacao)
+mudarMatriz direcao = runWriter . case direcao of
+    Direita  -> goDireita
+    Esquerda  -> goEsquerda
+    Cima -> liftM transpose . goDireita . transpose
+    Baixo -> liftM transpose . goEsquerda . transpose
+    where goDireita = mapM mudarLinha
+          goEsquerda = mapM $ liftM reverse . mudarLinha . reverse
 
-emptyBoard :: Int -> Board
-emptyBoard n = replicate n $ replicate n Nothing
+-- Funcao que verifica se a Matriz esta vazia
+matrizVazia :: Int -> Matriz
+matrizVazia n = replicate n $ replicate n Nothing
 
--- | coords of available spaces
-available :: Board -> [(Int, Int)]
-available = concat . zipWith (zip . repeat) [0..] . fmap (elemIndices Nothing)
+-- Funcao que verifica as coordenadas dos espaços vazios
+disponivel :: Matriz -> [(Int, Int)]
+disponivel = concat . zipWith (zip . repeat) [0..] . fmap (elemIndices Nothing)
 
---  ew
-update :: Board -> (Int, Int) -> Cell -> Board
-update board (x, y) val = newBoard
-    where (rs, r:rs') = splitAt x board
+--  Funcao para atualizar matriz
+atualizar :: Matriz -> (Int, Int) -> Celula -> Matriz
+atualizar matriz (x, y) val = novaMatriz
+    where (rs, r:rs') = splitAt x matriz
           (cs, _:cs') = splitAt y r
-          newRow = cs <> (val : cs')
-          newBoard = rs <> (newRow : rs')
+          novaLinha = cs <> (val : cs')
+          novaMatriz = rs <> (novaLinha : rs')
 
-insertRandom :: MonadRandom m => Board -> m (Maybe Board)
-insertRandom board
-    | null holes = return Nothing
+-- Funcao para criar aleatoriamente o numero 2 ou numero 4 em alguma celula aleatoria da matriz
+-- seguindo a regra de 90% de chances para o numero 2 e 10% de chance para o numero 4
+inserirAleatorio :: MonadRandom m => Matriz -> m (Maybe Matriz)
+inserirAleatorio matriz
+    | null espacos = return Nothing
     | otherwise = do
-        pos <- liftM (holes !!) $ getRandomR (0, length holes - 1)
+        pos <- liftM (espacos !!) $ getRandomR (0, length espacos - 1)
         coin <- getRandomR (0 :: Float, 1)
-        let newCell = Just $ if coin < 0.9 then 2 else 4
-        return . Just $ update board pos newCell
-    where holes = available board
+        let novaCelula = Just $ if coin < 0.9 then 2 else 4
+        return . Just $ atualizar matriz pos novaCelula
+    where espacos = disponivel matriz
 
-winner :: Cell -> Board -> Bool
-winner winning = elem winning . concat
+-- Funcao que verifica se a pontacao de alguma celula eh a pontuacao alvo
+vencedor :: Celula -> Matriz -> Bool
+vencedor ganhando = elem ganhando . concat
 
-gameRound :: MonadRandom m => Cell -> Direction -> Board -> m RoundResult
-gameRound goal direction board =
-    let (newBoard, Sum newPoints) =
-            shiftBoard direction board
-        result = RoundResult newPoints
-        change = board /= newBoard
-    in if not change 
-        then return $ if null $ available newBoard
-            then result Lose newBoard
-            else result Invalid board
-        else if winner goal newBoard
-            then return $ result Win newBoard
+-- Funcao para verificar cada jogada
+gameMovimento :: MonadRandom m => Celula -> Direcao -> Matriz -> m ResultadoRodada
+gameMovimento goal direcao matriz =
+    let (novaMatriz, Sum pontos) =
+            mudarMatriz direcao matriz
+        resultado = ResultadoRodada pontos
+        mudou = matriz /= novaMatriz
+    in if not mudou 
+        then return $ if null $ disponivel novaMatriz
+            then resultado Derrota novaMatriz
+            else resultado Invalido matriz
+        else if vencedor goal novaMatriz
+            then return $ resultado Vitoria novaMatriz
             else do
-                randoBoard <- insertRandom newBoard
-                case randoBoard of
-                    Nothing -> return $ result Lose newBoard
-                    Just b  -> return $ result Active b
+                randoMatriz <- inserirAleatorio novaMatriz
+                case randoMatriz of
+                    Nothing -> return $ resultado Derrota novaMatriz
+                    Just b  -> return $ resultado Ativo b
 
-runGame :: Cell -> Board -> Int -> InputT IO ()
-runGame goal board score = do
-    liftIO . putStrLn $ showBoard board
-    input <- getInputChar "wasd: "
-    liftIO $ putStrLn ""
+
+-- Funcao para solicitar ao jogador a entrada necessaria para realizar a jogada
+-- realizar o calculo dos pontos
+jogarGame :: Celula -> Matriz -> Int -> InputT IO ()
+jogarGame goal matriz pontuacao = do
+    liftIO . putStrLn $ criarMatriz matriz
+    input <- getInputChar ""
     
-    let direction = case input of
-         Just 'w' -> Just North
-         Just 'a' -> Just West
-         Just 's' -> Just South
-         Just 'd' -> Just East
+    let direcao = case input of
+         Just 'w' -> Just Cima
+         Just 'a' -> Just Direita
+         Just 's' -> Just Baixo
+         Just 'd' -> Just Esquerda
          _ -> Nothing
 
-    case direction of
+    case direcao of
         Nothing ->
-            runGame goal board score
+            jogarGame goal matriz pontuacao
         Just dir -> do
-            RoundResult newPoints moveOutcome newBoard <-
-                liftIO $ gameRound goal dir board
-            let totalScore = newPoints + score
-            case moveOutcome of
-                Lose -> liftIO $ 
-                    putStrLn $ "Voce perdeu com " ++ show totalScore ++ " pontos!"
-                Win -> liftIO $ 
-                    putStrLn $ "Voce ganhou com " ++ show totalScore ++ " pontos!"
-                Active -> do
+            ResultadoRodada pontos resultado novaMatriz <-
+                liftIO $ gameMovimento goal dir matriz
+            let totalPontuacao = pontos + pontuacao
+            case resultado of
+                Derrota -> liftIO $ 
+                    putStrLn $ "Voce perdeu com " ++ show totalPontuacao ++ " pontos!"
+                    
+                Vitoria -> liftIO $ 
+                    putStrLn $ "Voce ganhou com " ++ show totalPontuacao ++ " pontos!"
+                Ativo -> do
                     liftIO $ do
-                        putStrLn $ "Voce conseguiu " ++ show newPoints ++ " pontos."
-                        putStrLn $ "Pontuacao total: " ++ show totalScore ++ " pontos."
-                    runGame goal newBoard totalScore
-                Invalid -> do
-                    liftIO $ putStrLn "Movimento Invalido, tente novamente."
-                    runGame goal newBoard totalScore
+                        putStrLn $ "Voce conseguiu " ++ show pontos ++ " pontos."
+                        putStrLn $ "Pontuacao total: " ++ show totalPontuacao ++ " pontos.\n"
+                    jogarGame goal novaMatriz totalPontuacao
+                Invalido -> do
+                    liftIO $ putStrLn "Movimento Invalidoo, tente novamente.\n"
+                    jogarGame goal novaMatriz totalPontuacao
 
-makeStartBoard :: MonadRandom m => Int -> m Board
-makeStartBoard size = do
-    Just board  <- insertRandom (emptyBoard size)
-    Just board' <- insertRandom board
-    return board'
 
+-- Funcao para iniciar o jogo
+iniciarJogo :: MonadRandom m => Int -> m Matriz
+iniciarJogo tam = do
+    Just matriz  <- inserirAleatorio (matrizVazia tam)
+    Just matriz' <- inserirAleatorio matriz
+    return matriz'
+
+-- Funcao main
 mainGame :: IO ()
 mainGame = do
-    let size = 4
+    putStr "\nTamanho do tabuleiro: "
+    op <- getLine
+    let n = read op :: Int
+    let tam = n
         goal = Just 2048
 
-    startBoard <- makeStartBoard size
-    putStrLn "Use 'w', 'a', 's', and 'd' to move."
-    runInputT defaultSettings $ runGame goal startBoard 0
+    iniciarMatriz <- iniciarJogo tam
+    putStrLn "\n'w', 'a', 's', 'd'\n"
+    runInputT defaultSettings $ jogarGame goal iniciarMatriz 0

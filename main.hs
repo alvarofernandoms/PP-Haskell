@@ -1,4 +1,5 @@
-import qualified HK2048
+module Main where
+import HK2048
 
 main :: IO ()
-main = HK2048.mainGame
+main = mainGame

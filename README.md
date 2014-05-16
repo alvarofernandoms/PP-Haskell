@@ -1,7 +1,7 @@
 PP-Haskell
 ==========
 
-Trabalho da disciplina Paradigmas de Programação - Paradigma Lógico (Haskell)
+Trabalho da disciplina Paradigmas de Programação - Paradigma Funcional (Haskell)
 
 
 Desenvolvimento
